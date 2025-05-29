@@ -23,6 +23,7 @@ function IndexPopup() {
   const [searchResults, setSearchResults] = useState<HubspotContact[]>([])
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
   const [isSearching, setIsSearching] = useState(false)
+  const [isLogging, setIsLogging] = useState(false)
 
   useEffect(() => {
     // Load saved keys when popup opens
@@ -217,6 +218,42 @@ function IndexPopup() {
     if (statusMessage) setStatusMessage("")
   }
 
+  const handleLogToHubspot = async () => {
+    if (selectedContacts.length === 0) {
+      setStatusMessage("Please select at least one contact to log the call.")
+      return
+    }
+    if (!apiKey || !hubspotToken) {
+      setStatusMessage("Please ensure Vexa API Key and HubSpot Token are saved.")
+      return
+    }
+
+    setIsLogging(true)
+    setStatusMessage("Logging call to HubSpot...")
+
+    // Send message to background script to handle the actual logging
+    chrome.runtime.sendMessage(
+      { 
+        type: "LOG_TO_HUBSPOT", 
+        contactIds: selectedContacts,
+        // We'll need the meetingId to fetch the correct transcript later
+        // For now, let's assume we have it or will get it from content script or storage
+        meetingId: "test-meeting-id-for-now" // Placeholder
+      },
+      (response) => {
+        setIsLogging(false)
+        if (chrome.runtime.lastError) {
+          console.error("Error sending LOG_TO_HUBSPOT message:", chrome.runtime.lastError.message)
+          setStatusMessage(`Error: ${chrome.runtime.lastError.message}`)
+        } else if (response && response.success) {
+          setStatusMessage("✅ Call logged to HubSpot successfully!")
+        } else {
+          setStatusMessage(`❌ Failed to log call: ${response?.error || 'Unknown error'}`)
+        }
+      }
+    )
+  }
+
   return (
     <div
       style={{
@@ -391,6 +428,26 @@ function IndexPopup() {
               {selectedContacts.length} contact(s) selected
             </div>
           )}
+        </div>
+      )}
+
+      {searchResults.length > 0 && selectedContacts.length > 0 && (
+        <div style={{ marginTop: "16px" }}>
+          <button
+            onClick={handleLogToHubspot}
+            disabled={isLogging}
+            style={{
+              padding: "10px 15px",
+              backgroundColor: isLogging ? "#ccc" : "#17a2b8",
+              color: "white",
+              border: "none",
+              borderRadius: "4px",
+              cursor: isLogging ? "not-allowed" : "pointer",
+              fontSize: "16px",
+              width: "100%"
+            }}>
+            {isLogging ? "Logging..." : "Log Call to HubSpot"}
+          </button>
         </div>
       )}
 
