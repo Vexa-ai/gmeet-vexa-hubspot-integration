@@ -2,34 +2,49 @@ import { Storage } from "@plasmohq/storage"
 
 const storage = new Storage()
 
+const ACTIVE_MEETING_SESSION_KEY = "activeMeetingSession_v1"
+
 console.log("Vexa-Hubspot background script loaded.")
 
-// Listen for messages from content scripts
+// Clear any stale active session on startup or install
+const clearActiveSession = async () => {
+  await storage.remove(ACTIVE_MEETING_SESSION_KEY)
+  console.log("Cleared any stale active meeting session.")
+}
+chrome.runtime.onStartup.addListener(clearActiveSession)
+chrome.runtime.onInstalled.addListener(clearActiveSession)
+
+// Listen for messages from content scripts or popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   console.log("Background script received message:", message)
 
   if (message.type === "MEETING_STARTED") {
     handleMeetingStarted(message.meetingId, sendResponse)
-    return true // Keep the message channel open for async response
+    return true
   } else if (message.type === "LOG_TO_HUBSPOT") {
-    handleLogToHubspotInBackground(message.meetingId, message.contactIds, sendResponse)
-    return true // Keep the message channel open for async response
+    // Pass meetingId, background will get contacts from storage
+    handleLogToHubspotInBackground(message.meetingId, sendResponse) 
+    return true
+  } else if (message.type === "GET_ACTIVE_MEETING_SESSION") {
+    storage.get(ACTIVE_MEETING_SESSION_KEY).then(sessionData => {
+      sendResponse(sessionData)
+    })
+    return true // Important for async sendResponse
+  } else if (message.type === "UPDATE_ASSOCIATED_CONTACTS") {
+    handleUpdateAssociatedContacts(message.meetingId, message.contactIds, sendResponse)
+    return true
+  } else if (message.type === "MEETING_ENDED") {
+    // Placeholder for more complete meeting end logic
+    handleMeetingEndedLogic(message.meetingId, sendResponse)
+    return true
   }
 
-  if (message.type === "MEETING_ENDED") {
-    handleMeetingEnded(message.meetingId, message.duration, sendResponse)
-    return true // Keep the message channel open for async response
-  }
-
-  // Add other message handlers here as needed
   return false
 })
 
 async function handleMeetingStarted(meetingId: string, sendResponse: (response: any) => void) {
   try {
     console.log("Handling meeting started for ID:", meetingId)
-    
-    // Get the stored Vexa API key
     const apiKey = await storage.get("vexaApiKey")
     if (!apiKey) {
       const errorMsg = "No Vexa API key found. Please configure it in the extension popup."
@@ -38,14 +53,21 @@ async function handleMeetingStarted(meetingId: string, sendResponse: (response: 
       return
     }
 
+    // Store new active meeting session, overwriting any previous one
+    const newSession = { 
+      id: meetingId, 
+      startTime: Date.now(), 
+      associatedContactIds: [] 
+    }
+    await storage.set(ACTIVE_MEETING_SESSION_KEY, newSession)
+    console.log("New active meeting session stored:", newSession)
+
     console.log("Vexa API key found, deploying bot...")
-    
-    // Call Vexa API to deploy bot
     const botResponse = await deployVexaBot(meetingId, apiKey)
     
     if (botResponse.success) {
       console.log("Vexa bot successfully deployed:", botResponse.data)
-      sendResponse({ success: true, message: "Bot deployed successfully", data: botResponse.data })
+      sendResponse({ success: true, message: "Bot deployed successfully", data: botResponse.data, meetingSession: newSession })
     } else {
       console.error("Failed to deploy Vexa bot:", botResponse.error)
       sendResponse({ success: false, error: botResponse.error })
@@ -57,48 +79,85 @@ async function handleMeetingStarted(meetingId: string, sendResponse: (response: 
   }
 }
 
-async function handleMeetingEnded(meetingId: string, duration: number, sendResponse: (response: any) => void) {
+async function handleUpdateAssociatedContacts(
+  meetingId: string, 
+  contactIds: string[], 
+  sendResponse: (response: any) => void
+) {
   try {
-    console.log("Handling meeting ended for ID:", meetingId, "Duration:", duration + "ms")
-    
-    // Get the stored Vexa API key
-    const apiKey = await storage.get("vexaApiKey")
-    if (!apiKey) {
-      const errorMsg = "No Vexa API key found. Cannot retrieve transcript."
+    const currentSession = await storage.get(ACTIVE_MEETING_SESSION_KEY) as any
+    if (currentSession && currentSession.id === meetingId) {
+      currentSession.associatedContactIds = contactIds
+      await storage.set(ACTIVE_MEETING_SESSION_KEY, currentSession)
+      console.log(`Updated associated contacts for meeting ${meetingId}:`, contactIds)
+      sendResponse({ success: true, updatedSession: currentSession })
+    } else {
+      const errorMsg = `No active session found for meeting ID ${meetingId} or ID mismatch.`
+      console.warn(errorMsg, "Current session:", currentSession)
+      sendResponse({ success: false, error: errorMsg })
+    }
+  } catch (error) {
+    console.error("Error updating associated contacts:", error)
+    sendResponse({ success: false, error: error.message })
+  }
+}
+
+async function handleLogToHubspotInBackground(
+  meetingId: string, // Note: contactIds removed from parameters here
+  sendResponse: (response: any) => void
+) {
+  try {
+    const currentSession = await storage.get(ACTIVE_MEETING_SESSION_KEY) as any
+    if (!currentSession || currentSession.id !== meetingId) {
+      const errorMsg = `No active session found for meeting ID ${meetingId} to log, or ID mismatch.`
+      console.error("Vexa-Hubspot:", errorMsg, "Current session:", currentSession)
+      sendResponse({ success: false, error: errorMsg })
+      return
+    }
+
+    const contactIds = currentSession.associatedContactIds
+    if (!contactIds || contactIds.length === 0) {
+      const errorMsg = `No contacts associated with meeting ID ${meetingId}. Please select contacts in the popup.`
       console.error("Vexa-Hubspot:", errorMsg)
       sendResponse({ success: false, error: errorMsg })
       return
     }
 
-    // Wait a bit for the transcript to be processed
-    console.log("Waiting 5 seconds for transcript to be processed...")
-    setTimeout(async () => {
-      try {
-        const transcriptResponse = await retrieveTranscript(meetingId, apiKey)
-        
-        if (transcriptResponse.success) {
-          console.log("Transcript retrieved successfully:", transcriptResponse.data)
-          sendResponse({ 
-            success: true, 
-            message: "Transcript retrieved successfully", 
-            transcript: transcriptResponse.data,
-            meetingId: meetingId,
-            duration: duration
-          })
-        } else {
-          console.error("Failed to retrieve transcript:", transcriptResponse.error)
-          sendResponse({ success: false, error: transcriptResponse.error })
-        }
-      } catch (error) {
-        console.error("Error retrieving transcript:", error)
-        sendResponse({ success: false, error: error.message })
-      }
-    }, 5000) // Wait 5 seconds
-    
+    console.log(`Logging call to HubSpot for meeting ${meetingId}, contacts: ${contactIds.join(", ")}`)
+
+    const hubspotToken = await storage.get("hubspotAccessToken") // Vexa key not strictly needed for this part if transcript is direct
+    if (!hubspotToken) {
+      const errorMsg = "HubSpot Token not found."
+      console.error("Vexa-Hubspot:", errorMsg)
+      sendResponse({ success: false, error: errorMsg })
+      return
+    }
+    // For now, using placeholder transcript text:
+    const transcriptText = `This is a simulated transcript for meeting ID: ${meetingId}.\n\nSpeaker 1: Hello everyone.\nSpeaker 2: Good to be here.\nSpeaker 1: Let's discuss the project updates.`
+    console.log("Using simulated transcript:", transcriptText)
+
+    const logResult = await logCallToHubspot(hubspotToken, contactIds, transcriptText, meetingId)
+
+    if (logResult.success) {
+      console.log("Call logged to HubSpot successfully:", logResult.data)
+      sendResponse({ success: true, data: logResult.data })
+    } else {
+      console.error("Failed to log call to HubSpot:", logResult.error)
+      sendResponse({ success: false, error: logResult.error })
+    }
+
   } catch (error) {
-    console.error("Error in handleMeetingEnded:", error)
+    console.error("Error in handleLogToHubspotInBackground:", error)
     sendResponse({ success: false, error: error.message })
   }
+}
+
+async function handleMeetingEndedLogic(meetingId: string, sendResponse: (response: any) => void) {
+  console.log(`Logic for meeting ended: ${meetingId}. Clearing active session.`);
+  // TODO: Implement actual transcript fetching and potential auto-logging here
+  // For now, just clear the active session
+  await storage.remove(ACTIVE_MEETING_SESSION_KEY)
+  sendResponse({ success: true, message: `Session for meeting ${meetingId} cleared.` })
 }
 
 async function deployVexaBot(meetingId: string, apiKey: string) {
@@ -179,67 +238,6 @@ async function retrieveTranscript(meetingId: string, apiKey: string) {
     }
   }
 }
-
-async function handleLogToHubspotInBackground(
-  meetingId: string, 
-  contactIds: string[], 
-  sendResponse: (response: any) => void
-) {
-  try {
-    console.log(`Logging call to HubSpot for meeting ${meetingId}, contacts: ${contactIds.join(", ")}`)
-
-    const vexaApiKey = await storage.get("vexaApiKey")
-    const hubspotToken = await storage.get("hubspotAccessToken")
-
-    if (!vexaApiKey || !hubspotToken) {
-      const errorMsg = "Vexa API Key or HubSpot Token not found."
-      console.error("Vexa-Hubspot:", errorMsg)
-      sendResponse({ success: false, error: errorMsg })
-      return
-    }
-
-    // --- 1. Fetch Transcript from Vexa (Simulated for now) ---
-    // In a real scenario, you would call the Vexa API GET /transcripts/{platform}/{native_meeting_id}
-    // const transcriptData = await fetchVexaTranscript(meetingId, vexaApiKey);
-    // if (!transcriptData.success) {
-    //   sendResponse({ success: false, error: transcriptData.error });
-    //   return;
-    // }
-    // const transcriptText = formatTranscriptForHubspot(transcriptData.data);
-    
-    // For now, using placeholder transcript text:
-    const transcriptText = `This is a simulated transcript for meeting ID: ${meetingId}.\n\nSpeaker 1: Hello everyone.\nSpeaker 2: Good to be here.\nSpeaker 1: Let's discuss the project updates.`
-    console.log("Using simulated transcript:", transcriptText)
-
-    // --- 2. Log Call to HubSpot ---
-    const logResult = await logCallToHubspot(hubspotToken, contactIds, transcriptText, meetingId)
-
-    if (logResult.success) {
-      console.log("Call logged to HubSpot successfully:", logResult.data)
-      sendResponse({ success: true, data: logResult.data })
-    } else {
-      console.error("Failed to log call to HubSpot:", logResult.error)
-      sendResponse({ success: false, error: logResult.error })
-    }
-
-  } catch (error) {
-    console.error("Error in handleLogToHubspotInBackground:", error)
-    sendResponse({ success: false, error: error.message })
-  }
-}
-
-// Placeholder function - replace with actual Vexa API call later
-// async function fetchVexaTranscript(meetingId: string, apiKey: string) { 
-//   console.log(`Fetching Vexa transcript for meeting: ${meetingId}`);
-//   // Actual API call logic here
-//   return { success: true, data: { /* ... transcript ... */ } };
-// }
-
-// Placeholder function - replace with actual formatting if needed
-// function formatTranscriptForHubspot(transcriptData: any): string {
-//   // Format transcriptData into a readable string
-//   return JSON.stringify(transcriptData, null, 2); 
-// }
 
 async function logCallToHubspot(
   token: string, 

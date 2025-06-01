@@ -15,6 +15,12 @@ interface HubspotContact {
   }
 }
 
+interface ActiveMeetingSession {
+  id: string
+  startTime: number
+  associatedContactIds: string[]
+}
+
 function IndexPopup() {
   const [apiKey, setApiKey] = useState("")
   const [hubspotToken, setHubspotToken] = useState("")
@@ -24,28 +30,64 @@ function IndexPopup() {
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [isLogging, setIsLogging] = useState(false)
+  const [currentMeetingId, setCurrentMeetingId] = useState<string | null>(null)
+  const [isLoadingSession, setIsLoadingSession] = useState(true)
 
   useEffect(() => {
-    // Load saved keys when popup opens
+    // Load saved API keys
     Promise.all([
       storage.get("vexaApiKey"),
       storage.get("hubspotAccessToken")
     ]).then(([savedApiKey, savedHubspotToken]) => {
-      if (savedApiKey) {
-        setApiKey(savedApiKey)
+      if (savedApiKey) setApiKey(savedApiKey)
+      if (savedHubspotToken) setHubspotToken(savedHubspotToken)
+      if (!savedApiKey || !savedHubspotToken) {
+        setStatusMessage("Please configure Vexa & HubSpot API keys.")
       }
-      if (savedHubspotToken) {
-        setHubspotToken(savedHubspotToken)
+    })
+
+    // Attempt to load active meeting session
+    chrome.runtime.sendMessage({ type: "GET_ACTIVE_MEETING_SESSION" }, (session: ActiveMeetingSession | null) => {
+      setIsLoadingSession(false)
+      if (chrome.runtime.lastError) {
+        console.warn("Error getting active session (might be none):", chrome.runtime.lastError.message)
+        setStatusMessage("No active meeting detected.")
+        return
       }
-      if (savedApiKey && savedHubspotToken) {
-        setStatusMessage("API keys loaded.")
-      } else if (savedApiKey) {
-        setStatusMessage("Vexa API key loaded. Please add HubSpot token.")
-      } else if (savedHubspotToken) {
-        setStatusMessage("HubSpot token loaded. Please add Vexa API key.")
+      if (session && session.id) {
+        console.log("Active meeting session loaded:", session)
+        setCurrentMeetingId(session.id)
+        setSelectedContacts(session.associatedContactIds || [])
+        setStatusMessage(`Active meeting: ${session.id}. Contacts loaded.`)
+      } else {
+        setStatusMessage("No active Google Meet detected.")
       }
     })
   }, [])
+
+  // Effect to update background script when selectedContacts change for an active meeting
+  useEffect(() => {
+    if (currentMeetingId && !isLoadingSession) { // Ensure session is loaded before trying to update
+      console.log("Selected contacts changed, updating background for meeting:", currentMeetingId, selectedContacts)
+      chrome.runtime.sendMessage(
+        {
+          type: "UPDATE_ASSOCIATED_CONTACTS",
+          meetingId: currentMeetingId,
+          contactIds: selectedContacts
+        },
+        (response) => {
+          if (chrome.runtime.lastError) {
+            console.error("Error updating associated contacts:", chrome.runtime.lastError.message)
+            // Optionally set a status message here if important
+          } else if (response && response.success) {
+            console.log("Associated contacts updated in background.")
+          } else {
+            console.warn("Failed to update associated contacts in background:", response?.error)
+          }
+        }
+      )
+    }
+  }, [selectedContacts, currentMeetingId, isLoadingSession])
 
   const handleSaveApiKey = async () => {
     if (apiKey.trim() === "") {
@@ -70,21 +112,15 @@ function IndexPopup() {
       setStatusMessage("Please save HubSpot Access Token first.")
       return
     }
-
     setStatusMessage("Testing HubSpot connection...")
-
     try {
-      // Determine if this is a legacy API key or Private App token
       const isLegacyKey = !hubspotToken.startsWith('pat-')
       let response
-
       if (isLegacyKey) {
-        // Legacy API key - use hapikey parameter
         response = await fetch(`https://api.hubapi.com/crm/v3/objects/contacts?limit=1&hapikey=${hubspotToken}`, {
           method: "GET"
         })
       } else {
-        // Private App token - use Authorization header
         response = await fetch("https://api.hubapi.com/crm/v3/objects/contacts?limit=1", {
           method: "GET",
           headers: {
@@ -92,23 +128,19 @@ function IndexPopup() {
           }
         })
       }
-
       if (response.status === 401) {
         setStatusMessage("❌ Token invalid. Check your HubSpot token.")
         return
       }
-
       if (response.status === 403) {
         setStatusMessage("❌ Missing scopes. Add 'crm.objects.contacts.read' permission.")
         return
       }
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
         setStatusMessage(`❌ API error: ${response.status} - ${errorData.message || 'Check token permissions'}`)
         return
       }
-
       const data = await response.json()
       setStatusMessage(`✅ Token works! Found ${data.total || 0} total contacts.`)
     } catch (error) {
@@ -126,24 +158,19 @@ function IndexPopup() {
       setStatusMessage("Please enter a search query.")
       return
     }
-
     setIsSearching(true)
     setStatusMessage("Searching contacts...")
-
     try {
-      // Determine if this is a legacy API key or Private App token
       const isLegacyKey = !hubspotToken.startsWith('pat-')
       const searchUrl = isLegacyKey 
         ? `https://api.hubapi.com/crm/v3/objects/contacts/search?hapikey=${hubspotToken}`
         : `https://api.hubapi.com/crm/v3/objects/contacts/search`
-
       const headers = isLegacyKey
         ? { "Content-Type": "application/json" }
         : {
             "Content-Type": "application/json",
             "Authorization": `Bearer ${hubspotToken}`
           }
-
       const response = await fetch(searchUrl, {
         method: "POST",
         headers: headers,
@@ -181,12 +208,10 @@ function IndexPopup() {
           limit: 10
         })
       })
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}))
         throw new Error(`HubSpot API error: ${response.status} - ${errorData.message || 'Unknown error'}`)
       }
-
       const data = await response.json()
       setSearchResults(data.results || [])
       setStatusMessage(`Found ${data.results?.length || 0} contacts.`)
@@ -205,6 +230,7 @@ function IndexPopup() {
         ? prev.filter(id => id !== contactId)
         : [...prev, contactId]
     )
+    // The useEffect for [selectedContacts, currentMeetingId] will handle sending the update
   }
 
   const handleInputChange = (field: string, value: string) => {
@@ -215,12 +241,16 @@ function IndexPopup() {
     } else if (field === "search") {
       setSearchQuery(value)
     }
-    if (statusMessage) setStatusMessage("")
+    if (statusMessage && !statusMessage.startsWith("Active meeting:")) setStatusMessage("")
   }
 
   const handleLogToHubspot = async () => {
+    if (!currentMeetingId) {
+      setStatusMessage("No active meeting to log. Is a Google Meet running?")
+      return
+    }
     if (selectedContacts.length === 0) {
-      setStatusMessage("Please select at least one contact to log the call.")
+      setStatusMessage("Please select at least one contact to log the call for this meeting.")
       return
     }
     if (!apiKey || !hubspotToken) {
@@ -231,14 +261,10 @@ function IndexPopup() {
     setIsLogging(true)
     setStatusMessage("Logging call to HubSpot...")
 
-    // Send message to background script to handle the actual logging
     chrome.runtime.sendMessage(
       { 
         type: "LOG_TO_HUBSPOT", 
-        contactIds: selectedContacts,
-        // We'll need the meetingId to fetch the correct transcript later
-        // For now, let's assume we have it or will get it from content script or storage
-        meetingId: "test-meeting-id-for-now" // Placeholder
+        meetingId: currentMeetingId // Background script will use this to get associated contacts
       },
       (response) => {
         setIsLogging(false)
@@ -251,6 +277,14 @@ function IndexPopup() {
           setStatusMessage(`❌ Failed to log call: ${response?.error || 'Unknown error'}`)
         }
       }
+    )
+  }
+
+  if (isLoadingSession) {
+    return (
+      <div style={{ padding: "20px", textAlign: "center", fontFamily: "sans-serif" }}>
+        Loading session information...
+      </div>
     )
   }
 
@@ -269,6 +303,13 @@ function IndexPopup() {
         Vexa-HubSpot Integration
       </h2>
       
+      {/* Meeting Info Display */}
+      {currentMeetingId && (
+        <div style={{ marginBottom: "12px", padding: "8px", backgroundColor: "#f0f0f0", borderRadius: "4px", fontSize: "13px", textAlign: "center"}}>
+          Active Meeting: <strong>{currentMeetingId}</strong>
+        </div>
+      )}
+
       {/* Vexa API Key Section */}
       <div style={{ marginBottom: "16px" }}>
         <label htmlFor="apiKeyInput" style={{ marginBottom: "4px", fontSize: "14px", fontWeight: "bold" }}>
@@ -358,11 +399,11 @@ function IndexPopup() {
         )}
       </div>
 
-      {/* Contact Search Section */}
-      {hubspotToken && (
+      {/* Contact Search Section - Show only if a meeting is active */}
+      {currentMeetingId && hubspotToken && (
         <div style={{ marginBottom: "16px" }}>
           <label htmlFor="searchInput" style={{ marginBottom: "4px", fontSize: "14px", fontWeight: "bold" }}>
-            Search HubSpot Contacts:
+            Search & Associate HubSpot Contacts (for {currentMeetingId}):
           </label>
           <div style={{ display: "flex", gap: "8px" }}>
             <input
@@ -398,10 +439,10 @@ function IndexPopup() {
       )}
 
       {/* Search Results */}
-      {searchResults.length > 0 && (
+      {currentMeetingId && searchResults.length > 0 && (
         <div style={{ marginBottom: "16px" }}>
-          <h4 style={{ margin: "0 0 8px 0", fontSize: "14px" }}>Contacts:</h4>
-          <div style={{ maxHeight: "200px", overflow: "auto", border: "1px solid #ddd", borderRadius: "4px" }}>
+          <h4 style={{ margin: "0 0 8px 0", fontSize: "14px" }}>Select contacts to associate:</h4>
+          <div style={{ maxHeight: "150px", overflow: "auto", border: "1px solid #ddd", borderRadius: "4px" }}>
             {searchResults.map((contact) => (
               <div
                 key={contact.id}
@@ -425,13 +466,14 @@ function IndexPopup() {
           </div>
           {selectedContacts.length > 0 && (
             <div style={{ marginTop: "8px", fontSize: "12px", color: "#666" }}>
-              {selectedContacts.length} contact(s) selected
+              {selectedContacts.length} contact(s) associated with this meeting.
             </div>
           )}
         </div>
       )}
 
-      {searchResults.length > 0 && selectedContacts.length > 0 && (
+      {/* Log to HubSpot Button - Show if meeting active and contacts selected */}
+      {currentMeetingId && selectedContacts.length > 0 && (
         <div style={{ marginTop: "16px" }}>
           <button
             onClick={handleLogToHubspot}
@@ -450,6 +492,11 @@ function IndexPopup() {
           </button>
         </div>
       )}
+      {!currentMeetingId && hubspotToken && (
+         <p style={{ marginTop: "10px", fontSize: "13px", color: "orange", textAlign: "center"}}>
+           Join a Google Meet to search and associate contacts.
+         </p>
+      )}
 
       {/* Status Message */}
       {statusMessage && (
@@ -457,8 +504,10 @@ function IndexPopup() {
           style={{
             marginTop: "10px",
             fontSize: "13px",
-            color: statusMessage.includes("saved") || statusMessage.includes("loaded") ? "green" : 
-                   statusMessage.includes("Found") ? "blue" : "red",
+            color: statusMessage.includes("saved") || statusMessage.includes("✅") || statusMessage.includes("loaded.") || statusMessage.includes("Active meeting:") ? "green" : 
+                   statusMessage.includes("Found") || statusMessage.includes("No active Google Meet detected.") ? "blue" : 
+                   statusMessage.includes("Please configure") || statusMessage.includes("No active meeting detected.") ? "orange" :
+                   "red",
             textAlign: "center"
           }}>
           {statusMessage}
