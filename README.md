@@ -107,6 +107,10 @@ Plasmo has a convention-over-configuration approach. Key files:
 
 Contributions are welcome! Please open an issue to discuss an idea or submit a pull request for bug fixes or features.
 
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
 ---
 
 *This project aims to leverage the power of Vexa.ai for transcription and HubSpot for CRM integration to streamline post-meeting workflows.*
