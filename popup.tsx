@@ -30,8 +30,12 @@ function IndexPopup() {
   const [selectedContacts, setSelectedContacts] = useState<string[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [isLogging, setIsLogging] = useState(false)
+<<<<<<< HEAD
   const [currentMeetingId, setCurrentMeetingId] = useState<string | null>(null)
   const [isLoadingSession, setIsLoadingSession] = useState(true)
+=======
+  const [currentMeetingId, setCurrentMeetingId] = useState("")
+>>>>>>> d16f53d710d3169011fd302273a9683e97ad2ab1
 
   useEffect(() => {
     // Load saved API keys
@@ -63,12 +67,42 @@ function IndexPopup() {
         setStatusMessage("No active Google Meet detected.")
       }
     })
+
+    // Get active meeting session when popup opens
+    chrome.runtime.sendMessage({ type: "GET_ACTIVE_MEETING_SESSION" }, (response) => {
+      if (chrome.runtime.lastError) {
+        console.error("Error getting active meeting session:", chrome.runtime.lastError.message)
+        // Optionally set a status message if a meeting was expected
+        // setStatusMessage("Could not retrieve active meeting status.");
+      } else if (response && response.id) {
+        console.log("[POPUP] Received active meeting session:", response);
+        setCurrentMeetingId(response.id)
+        if (response.associatedContactIds && response.associatedContactIds.length > 0) {
+          setSelectedContacts(response.associatedContactIds);
+          setStatusMessage(`Meeting ${response.id} loaded with ${response.associatedContactIds.length} contacts.`);
+        } else {
+          setStatusMessage(`Active meeting ${response.id} found. Search and select contacts.`)
+        }
+      } else {
+        // No active meeting, or response is not what we expect.
+        console.log("[POPUP] No active meeting session found or invalid response:", response);
+        // setStatusMessage("No active Google Meet detected by background script.");
+        // setCurrentMeetingId(""); // Ensure it's cleared if no valid session
+      }
+    });
   }, [])
 
+<<<<<<< HEAD
   // Effect to update background script when selectedContacts change for an active meeting
   useEffect(() => {
     if (currentMeetingId && !isLoadingSession) { // Ensure session is loaded before trying to update
       console.log("Selected contacts changed, updating background for meeting:", currentMeetingId, selectedContacts)
+=======
+  // Effect to update associated contacts in background when selectedContacts change
+  useEffect(() => {
+    if (currentMeetingId && selectedContacts) { // Make sure selectedContacts is initialized
+      console.log("[POPUP] selectedContacts changed, sending UPDATE_ASSOCIATED_CONTACTS. Meeting ID:", currentMeetingId, "Contacts:", selectedContacts);
+>>>>>>> d16f53d710d3169011fd302273a9683e97ad2ab1
       chrome.runtime.sendMessage(
         {
           type: "UPDATE_ASSOCIATED_CONTACTS",
@@ -77,6 +111,7 @@ function IndexPopup() {
         },
         (response) => {
           if (chrome.runtime.lastError) {
+<<<<<<< HEAD
             console.error("Error updating associated contacts:", chrome.runtime.lastError.message)
             // Optionally set a status message here if important
           } else if (response && response.success) {
@@ -88,6 +123,21 @@ function IndexPopup() {
       )
     }
   }, [selectedContacts, currentMeetingId, isLoadingSession])
+=======
+            console.error("Error sending UPDATE_ASSOCIATED_CONTACTS:", chrome.runtime.lastError.message);
+            // Optionally update status message
+            // setStatusMessage("Error updating contact association in background.");
+          } else if (response && response.success) {
+            console.log("[POPUP] UPDATE_ASSOCIATED_CONTACTS successful.");
+          } else {
+            console.warn("[POPUP] UPDATE_ASSOCIATED_CONTACTS failed or no success response:", response);
+            // setStatusMessage("Failed to update contact association.");
+          }
+        }
+      );
+    }
+  }, [selectedContacts, currentMeetingId]); // Re-run when selectedContacts or currentMeetingId changes
+>>>>>>> d16f53d710d3169011fd302273a9683e97ad2ab1
 
   const handleSaveApiKey = async () => {
     if (apiKey.trim() === "") {
@@ -247,6 +297,10 @@ function IndexPopup() {
   const handleLogToHubspot = async () => {
     if (!currentMeetingId) {
       setStatusMessage("No active meeting to log. Is a Google Meet running?")
+<<<<<<< HEAD
+=======
+      console.error("[POPUP] LogToHubspot: currentMeetingId is falsy. Value:", currentMeetingId);
+>>>>>>> d16f53d710d3169011fd302273a9683e97ad2ab1
       return
     }
     if (selectedContacts.length === 0) {
@@ -261,10 +315,19 @@ function IndexPopup() {
     setIsLogging(true)
     setStatusMessage("Logging call to HubSpot...")
 
+<<<<<<< HEAD
     chrome.runtime.sendMessage(
       { 
         type: "LOG_TO_HUBSPOT", 
         meetingId: currentMeetingId // Background script will use this to get associated contacts
+=======
+    console.log(`[POPUP] Sending LOG_TO_HUBSPOT. currentMeetingId: '${currentMeetingId}', Type: ${typeof currentMeetingId}`);
+
+    chrome.runtime.sendMessage(
+      {
+        type: "LOG_TO_HUBSPOT",
+        meetingId: currentMeetingId
+>>>>>>> d16f53d710d3169011fd302273a9683e97ad2ab1
       },
       (response) => {
         setIsLogging(false)

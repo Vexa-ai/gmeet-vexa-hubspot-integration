@@ -87,3 +87,4 @@ Contributions are welcome! Please open an issue or submit a pull request.
 ---
 
 *This project aims to leverage the power of Vexa.ai for transcription and Hubspot for CRM integration to streamline post-meeting workflows.*
+ 
