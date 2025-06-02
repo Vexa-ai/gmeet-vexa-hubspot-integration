@@ -29,14 +29,15 @@ Watch the stream here: [Vibe Coding - Google Meet & HubSpot Automation with Vexa
 
 ## Prerequisites
 
-1.  **Vexa API Key**: You will need an active Vexa API key. Obtain one from [www.vexa.ai](https://www.vexa.ai).
-2.  **HubSpot Private App Access Token**: You need a HubSpot account and must create a Private App with the following scopes:
-    *   `crm.objects.contacts.read` (To search contacts)
-    *   `crm.objects.contacts.write` (Implicitly needed for some associations, good to have)
-    *   `crm.schemas.contacts.read` (Often needed alongside object read)
-    *   `timeline` (To log engagements like calls/notes)
-    *   `actions` (To perform specific actions like creating engagements)
-    You can create a Private App in your HubSpot settings under Integrations → Private Apps. Copy the generated Access Token.
+1.  **Vexa API Key**: Obtain your Vexa API key from your dashboard at [https://vexa.ai/dashboard/api-keys](https://vexa.ai/dashboard/api-keys).
+2.  **HubSpot Private App Access Token**: To get this token, navigate in your HubSpot account to:
+    *   Settings → Integrations → Private Apps.
+    *   Click "Create a private app".
+    *   Configure the basic info for your app.
+    *   Under the "Scopes" tab, ensure you grant at least the following permissions:
+        *   `crm.objects.contacts.read`
+        *   `crm.objects.contacts.write`
+    *   After setting the scopes and creating the app, HubSpot will provide an Access Token. Copy this token.
 
 ## Getting Started
 
