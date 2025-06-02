@@ -70,7 +70,7 @@ The following steps are for developers who want to build the extension from sour
 
 If you don't want to set up the development environment, you can install a pre-built version of the extension:
 
-1.  **Download the latest release:** Go to the [GitHub Releases page](https://github.com/Vexa-ai/gmeet-vexa-hubspot-integration/releases) for this project. Download the `gmeet-vexa-hubspot-extension-v0.0.1.zip` file (or the latest version available).
+1.  **Download the extension ZIP file:** [Click here to download `gmeet-vexa-hubspot-extension-v0.0.1.zip`](https://github.com/Vexa-ai/gmeet-vexa-hubspot-integration/raw/main/gmeet-vexa-hubspot-extension-v0.0.1.zip).
 2.  **Unzip the file:** Extract the contents of the downloaded ZIP file. This will create a folder structure like `build/chrome-mv3-prod/` containing the extension files.
 3.  **Load the extension in Chrome:**
     *   Open Chrome and navigate to `chrome://extensions`.
