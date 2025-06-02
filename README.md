@@ -39,7 +39,9 @@ Watch the stream here: [Vibe Coding - Google Meet & HubSpot Automation with Vexa
         *   `crm.objects.contacts.write`
     *   After setting the scopes and creating the app, HubSpot will provide an Access Token. Copy this token.
 
-## Getting Started
+## Getting Started (For Developers)
+
+The following steps are for developers who want to build the extension from source or contribute to its development. If you just want to use the extension, please see the "Installing Pre-built Extension" section below.
 
 1.  **Clone the repository:**
     ```bash
@@ -63,6 +65,20 @@ Watch the stream here: [Vibe Coding - Google Meet & HubSpot Automation with Vexa
     *   Enable "Developer mode" (usually a toggle in the top right).
     *   Click "Load unpacked".
     *   Select the `build/chrome-mv3-dev` directory from this project.
+
+## Installing Pre-built Extension (Recommended for Users)
+
+If you don't want to set up the development environment, you can install a pre-built version of the extension:
+
+1.  **Download the latest release:** Go to the [GitHub Releases page](https://github.com/Vexa-ai/gmeet-vexa-hubspot-integration/releases) for this project. Download the `gmeet-vexa-hubspot-extension-v0.0.1.zip` file (or the latest version available).
+2.  **Unzip the file:** Extract the contents of the downloaded ZIP file to a permanent folder on your computer (e.g., `gmeet-vexa-hubspot-extension`).
+3.  **Load the extension in Chrome:**
+    *   Open Chrome and navigate to `chrome://extensions`.
+    *   Ensure "Developer mode" (usually a toggle in the top right) is enabled.
+    *   Click the "Load unpacked" button.
+    *   Select the folder where you unzipped the extension files (e.g., the `gmeet-vexa-hubspot-extension` folder you created in step 2).
+
+The extension icon should now appear in your Chrome toolbar.
 
 ## Configuration & How to Use
 
